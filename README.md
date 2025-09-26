@@ -1,76 +1,57 @@
-# agente-de-ia-e-whatsapp
+# 📞 Automação de WhatsApp para Novos Leads com n8n e Gemini (Z-API)
 
-# 🤖 Chatbot de Suporte com Gemini, n8n e Google Sheets
+Este projeto demonstra um fluxo de trabalho de automação avançada construído com **n8n** para processar mensagens recebidas no **WhatsApp** (via Z-API), utilizar o **Google Gemini** como um agente de suporte inteligente e salvar/atualizar informações de leads no **Google Sheets**.
 
-Este projeto demonstra a criação de um **chatbot de suporte** divertido e inteligente, orquestrado pelo **n8n** (uma ferramenta de automação no-code/low-code), utilizando o modelo **Google Gemini** para as interações e registrando automaticamente todas as conversas em uma planilha do **Google Sheets**.
+## 🎯 Objetivo
 
-## ✨ Visão Geral do Projeto
+Criar um sistema de atendimento e qualificação de leads via WhatsApp que:
 
-O objetivo principal é oferecer uma experiência de suporte automatizada e humanizada, enquanto se mantém um registro organizado de todas as interações.
-
-* **Agente de IA:** Usa o **Google Gemini** para processamento de linguagem natural e geração de respostas.
-* **Workflow:** Gerenciado pelo **n8n**, que conecta a interface de chat, a IA e o banco de dados (Google Sheets).
-* **Persistência:** O histórico da conversa é mantido com o **Memory Buffer** do n8n, e as mensagens de entrada são salvas no **Google Sheets**.
-* **Personalidade:** O agente é configurado com uma `system message` para ser **educado, engraçado e usar emojis** (conforme visto na captura de tela: "Olá, Karla! Que bom te conhecer! Eu sou seu super agente de suporte, pronto para te ajudar com o que precisar! Como posso iluminar seu dia hoje?").
+1.  **Filtra** mensagens irrelevantes (grupos, newsletters, etc.).
+2.  **Extrai** o número de telefone e nome do contato.
+3.  **Registra/Atualiza** o lead no Google Sheets.
+4.  Gera uma **resposta inteligente** em tempo real usando o **Gemini AI Agent**.
+5.  **Envia** a resposta de volta ao usuário via API do WhatsApp (Z-API).
 
 ## 🛠️ Arquitetura do Workflow (n8n)
 
-O fluxo de trabalho é linear e segue os seguintes passos:
+O fluxo é acionado por um webhook do WhatsApp (Z-API) e tem uma estrutura condicional para garantir que apenas mensagens de conversas individuais sejam processadas.
 
-1.  **`When chat message received` (Gatilho de Chat):**
-    * **Função:** Inicia o workflow a cada nova mensagem do usuário na interface do chat.
-
-2.  **`Edit Fields` (Preparação de Dados):**
-    * **Função:** Extrai e nomeia as variáveis essenciais para uso posterior.
-    * **Variáveis:**
-        * `id_conversa`: Captura o ID da sessão (`{{ $json.sessionId }}`).
-        * `Mensagem`: Captura o texto da mensagem do usuário (`{{ $json.chatInput }}`).
-
-3.  **`Append row in sheet` (Google Sheets):**
-    * **Função:** Registra a mensagem do usuário no Google Sheets.
-    * **Configuração:** Utiliza a operação `append` e mapeia as variáveis criadas: `id_conversa` e `Mensagem`.
-    * **Finalidade:** Garante a persistência do histórico da conversa em um formato de fácil acesso para análise.
-
-4.  **`AI Agent` (Processamento de IA):**
-    * **Função:** É o core da inteligência, orquestrando o modelo de linguagem, a memória e as ferramentas.
-    * **Prompt de Entrada:** A mensagem do usuário (`{{ $('Edit Fields').item.json.Mensagem }}`) é passada para o agente.
-    * **System Message (Personalidade):** "Você é um super agente de suporte, seja educado, engraçado e utilize emojis em suas respostas para deixar a conversa mais humanizada."
-    * **Conexões:** O Agente está conectado a 4 componentes:
-        * **`Google Gemini Chat Model`** (Modelo de Linguagem).
-        * **`Simple Memory`** (Memória da Conversa).
-        * **`Calculator`** (Ferramenta para cálculos matemáticos).
-        * **`Wikipedia`** (Ferramenta para buscar informações externas, como no exemplo de "Augusto Cury").
-
-5.  **`No Operation, do nothing` (Finalização):**
-    * **Função:** Um nó final que não executa nenhuma ação, mas garante que o fluxo se complete após o Agente de IA enviar a resposta ao chat.
-
-## 🔗 Componentes de IA e Ferramentas
-
-| Componente | Tipo | Função no Workflow |
+### 1. Início e Filtragem
+| Nó | Tipo | Função |
 | :--- | :--- | :--- |
-| **Google Gemini Chat Model** | Language Model | Geração da resposta da IA. |
-| **Simple Memory** | Memory | Armazena o histórico da sessão (`id_conversa` é a chave) para que o agente se lembre de interações anteriores. |
-| **Calculator** | Tool | Permite que o agente resolva problemas matemáticos. |
-| **Wikipedia** | Tool | Permite que o agente acesse informações factuais e de conhecimento geral (Ex: "Quem é Augusto Cury?"). |
+| **`Webhook`** | Trigger | Recebe a notificação (payload) de novas mensagens do WhatsApp, geralmente configurado na plataforma Z-API. |
+| **`If` (Se)** | Condicional | **Filtra** a mensagem. O fluxo só prossegue se a mensagem **NÃO** for de grupo (`isGroup: false`), newsletter (`isNewsletter: false`), broadcast (`broadcast: false`) ou enviada pela API (`fromApi: false`). Mensagens não qualificadas são descartadas pelo nó `No Operation, do nothing1`. |
 
-## 🖼️ Demonstração da Interação
+### 2. Preparação de Dados
+| Nó | Tipo | Variáveis Mapeadas | Função |
+| :--- | :--- | :--- | :--- |
+| **`Edit Fields`** | Set | **`id_conversa`** (do corpo do telefone), **`Mensagem`** (texto da mensagem), **`Nome`** (nome do chat). | Extrai os dados essenciais do payload do Webhook para facilitar o uso nos nós subsequentes. |
 
-A captura de tela da conversa mostra a funcionalidade em ação:
+### 3. Persistência de Leads
+| Nó | Tipo | Configuração | Função |
+| :--- | :--- | :--- | :--- |
+| **`Append or update row in sheet`** | Google Sheets | **Operação:** `appendOrUpdate`. **Coluna de Correspondência:** `WhatsApp` (`id_conversa`). | Utiliza o número de WhatsApp como chave única. Se o lead for novo, ele é **anexado**; se já existir (conversa recorrente), o nome é **atualizado**. |
 
-| Usuário (Karla) | Agente (Gemini) |
-| :--- | :--- |
-| `Me chamo Karla` | *Resposta inicial personalizada usando a system message.* |
-| `Que é Augusto Cury?` | *O agente usa a ferramenta **Wikipedia** para buscar a informação e retornar uma resposta detalhada e contextualizada.* |
+### 4. Processamento da Inteligência Artificial
+Este é o core do atendimento, onde o **Agente de IA** gera a resposta.
 
----
+| Nó | Tipo | Configuração | Detalhe da Conexão |
+| :--- | :--- | :--- | :--- |
+| **`AI Agent`** | Langchain Agent | **System Message:** "Você é um super agente de suporte, seja educado, engraçado e utilize emojis em suas respostas para deixar a conversa mais humanizada." | Orquestra a resposta usando o Modelo de Linguagem, a Memória e as Ferramentas. |
+| **`Google Gemini Chat Model`** | Language Model | Modelo de IA para gerar o texto da resposta. | Conectado ao `AI Agent`. |
+| **`Simple Memory`** | Memory | Session Key: `id_conversa` (`phone`). | Permite que o agente se lembre do contexto da conversa com o lead. |
+| **`Calculator` / `Wikipedia`** | Tools | Ferramentas opcionais para o agente realizar cálculos ou buscar informações externas. | Conectado ao `AI Agent`. |
 
-## 🚀 Como Executar Este Projeto
+### 5. Resposta ao Usuário
+| Nó | Tipo | Configuração | Função |
+| :--- | :--- | :--- | :--- |
+| **`HTTP Request`** | Envio de API | **URL:** API de envio de texto do Z-API. **Body:** Mapeia `phone` com `id_conversa` e `message` com `{{ $json.output }}` (a resposta gerada pelo `AI Agent`). | Envia a resposta final do Gemini de volta para o lead no WhatsApp. |
+| **`No Operation, do nothing`** | Finalizador | - | Garante que o fluxo de trabalho termine corretamente. |
 
-Para replicar este workflow, você precisará:
+## 🔑 Credenciais Necessárias
 
-1.  Uma conta **n8n** (self-hosted ou cloud).
-2.  Uma chave de API para o **Google Gemini** (Configurada no nó `Google Gemini Chat Model`).
-3.  Uma conta **Google Sheets** com credenciais configuradas no n8n.
-4.  Importar o arquivo `curso-no-code.json` no seu ambiente n8n.
+Para rodar este projeto, você precisará configurar as seguintes credenciais no n8n:
 
-Lembre-se de substituir os IDs do Google Sheets e as credenciais pelos seus próprios.
+1.  **Google Sheets OAuth2 API:** Para ler e escrever na planilha de leads.
+2.  **Google Gemini (PaLM) API:** Para o nó `Google Gemini Chat Model`.
+3.  **Z-API Instance/Token:** Para configurar a URL do `HTTP Request` e o `client-token` no cabeçalho.
